@@ -331,5 +331,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   document.addEventListener('langchange', renderCourses);
   document.addEventListener('userchange', renderCourses);
   document.addEventListener('dbupdated', renderCourses);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && window.refreshCloudSync) {
+      window.refreshCloudSync().then(() => renderCourses());
+    }
+  });
 });
 
