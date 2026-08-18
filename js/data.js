@@ -160,56 +160,72 @@ const Store = {
         const cloudUsers = await window.FB_Sync.fetchUsers();
 
         let updated = false;
-        const cloudQuizCount = (cloudQuizzes?.[1]?.length || 0) + (cloudQuizzes?.[2]?.length || 0);
-        const localQuizCount = (db.quizzes[1]?.length || 0) + (db.quizzes[2]?.length || 0);
 
-        if (cloudCourses?.length) {
+        // Firebase is the source of truth when fetch succeeds (even if empty [])
+        if (cloudCourses !== null) {
           db.courses = normalizeCourses(cloudCourses);
           updated = true;
         }
 
-        if (cloudQuizCount) {
-          if (cloudQuizzes[1]?.length) db.quizzes[1] = cloudQuizzes[1];
-          if (cloudQuizzes[2]?.length) db.quizzes[2] = cloudQuizzes[2];
+        if (cloudQuizzes !== null) {
+          db.quizzes = {
+            1: cloudQuizzes[1] || [],
+            2: cloudQuizzes[2] || []
+          };
           updated = true;
         }
 
-        if (cloudUsers?.length) {
+        if (cloudUsers !== null && cloudUsers.length) {
           db.users = cloudUsers;
           updated = true;
         }
 
-        const cloudHasCoursesOrQuizzes = (cloudCourses?.length || 0) > 0 || cloudQuizCount > 0;
-        const localHasCoursesOrQuizzes = db.courses.length > 0 || localQuizCount > 0;
-        if (!cloudHasCoursesOrQuizzes && localHasCoursesOrQuizzes) {
-          const pushed = await this.pushUnsyncedToCloud(db);
-          if (pushed) updated = true;
+        // Offline only: upload items that were never saved to Firebase
+        if (cloudCourses === null) {
+          const hasUnsynced = db.courses.some(c => !c.firestoreId)
+            || [1, 2].some(y => (db.quizzes[y] || []).some(q => !q.firestoreId));
+          if (hasUnsynced) {
+            const pushed = await this.pushUnsyncedToCloud(db);
+            if (pushed) updated = true;
+          }
+        } else if (cloudCourses.length === 0) {
+          const hasUnsynced = db.courses.some(c => !c.firestoreId);
+          if (hasUnsynced) {
+            const pushed = await this.pushUnsyncedToCloud(db);
+            if (pushed) updated = true;
+          }
         }
 
-        if (updated) {
-          saveDB(db);
-        }
-
-        if (cloudCourses?.length || cloudQuizCount || attempt === attempts - 1) {
-          notifyStoreUpdated();
-          return;
-        }
+        if (updated) saveDB(db);
+        notifyStoreUpdated();
+        return;
       } catch (e) {
         console.warn("syncWithFirebase error:", e);
       }
       await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
     }
   },
+  applyCloudCourses(courses) {
+    const db = loadDB();
+    db.courses = normalizeCourses(courses);
+    saveDB(db);
+    notifyStoreUpdated();
+  },
+  applyCloudQuizzes(quizzes) {
+    const db = loadDB();
+    db.quizzes = {
+      1: quizzes[1] || [],
+      2: quizzes[2] || []
+    };
+    saveDB(db);
+    notifyStoreUpdated();
+  },
   async fetchCoursesFromCloud() {
     if (!window.FB_Sync) return [];
     const cloud = await window.FB_Sync.fetchCourses();
-    if (!cloud?.length) return [];
-    const normalized = normalizeCourses(cloud);
-    const db = loadDB();
-    db.courses = normalized;
-    saveDB(db);
-    notifyStoreUpdated();
-    return normalized;
+    if (cloud === null) return [];
+    this.applyCloudCourses(cloud);
+    return normalizeCourses(cloud);
   },
   getYearStats(year) {
     return {
@@ -275,10 +291,11 @@ const Store = {
       });
     }
     saveDB(db);
-    document.dispatchEvent(new CustomEvent('dbupdated'));
+    notifyStoreUpdated();
 
-    if (window.FB_Sync) {
-      window.FB_Sync.deleteCourse(target?.firestoreId || id);
+    if (window.FB_Sync && target) {
+      const cloudId = target.firestoreId || target.id;
+      window.FB_Sync.deleteCourse(cloudId);
     }
   },
   getQuiz(year) {
