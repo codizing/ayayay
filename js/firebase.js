@@ -244,11 +244,37 @@ if (typeof firebase !== 'undefined') {
     }
   };
 
+  let consecutiveSyncFailures = 0;
+  let hasWarnedSyncFailure = false;
+
   window.refreshCloudSync = async function() {
     if (window.Store && typeof window.Store.syncWithFirebase === 'function') {
-      await window.Store.syncWithFirebase();
+      const reachedCloud = await window.Store.syncWithFirebase();
+
+      if (reachedCloud) {
+        consecutiveSyncFailures = 0;
+        hasWarnedSyncFailure = false;
+      } else {
+        consecutiveSyncFailures++;
+        // Only warn once per streak of failures, not on every single poll
+        if (consecutiveSyncFailures >= 2 && !hasWarnedSyncFailure && typeof showToast === 'function') {
+          hasWarnedSyncFailure = true;
+          showToast('⚠️ Could not reach the server — showing saved data. Check your connection.');
+        }
+      }
     }
   };
+
+  // Belt-and-suspenders fallback: on some networks/extensions the realtime
+  // onSnapshot listener (startRealtimeSync below) gets silently blocked while
+  // normal one-time requests still work. This background poll makes sure
+  // courses/quiz changes still show up on their own within ~10s even then,
+  // without anyone needing to open DevTools and clear localStorage.
+  setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      window.refreshCloudSync();
+    }
+  }, 10000);
 
   function startRealtimeSync() {
     if (!window.Store || window.__cspRealtimeStarted) return;
