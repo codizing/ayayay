@@ -198,12 +198,15 @@ const Store = {
 
         if (updated) saveDB(db);
         notifyStoreUpdated();
-        return;
+        // cloudCourses === null means every attempt to actually reach
+        // Firestore failed and we're just showing whatever was cached.
+        return cloudCourses !== null;
       } catch (e) {
         console.warn("syncWithFirebase error:", e);
       }
       await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
     }
+    return false;
   },
   applyCloudCourses(courses) {
     const db = loadDB();
@@ -469,4 +472,3 @@ const Store = {
     localStorage.setItem(DB_KEY, JSON.stringify(SEED));
   }
 };
-
