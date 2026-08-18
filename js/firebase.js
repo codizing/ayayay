@@ -129,15 +129,22 @@ if (typeof firebase !== 'undefined') {
   };
 
   window.FB_Sync = {
-    async fetchCourses() {
+    async _fetchCollection(name, mapDoc) {
       try {
-        const snap = await db.collection("courses").get();
-        if (snap.empty) return null;
-        return snap.docs.map(d => ({ id: d.id, firestoreId: d.id, ...d.data() }));
+        const snap = await db.collection(name).get({ source: 'server' });
+        return snap.docs.map(mapDoc);
       } catch (e) {
-        console.warn("Firestore fetchCourses:", e.message);
-        return null;
+        try {
+          const snap = await db.collection(name).get();
+          return snap.docs.map(mapDoc);
+        } catch (e2) {
+          console.warn(`Firestore fetch ${name}:`, e2.message);
+          return null;
+        }
       }
+    },
+    async fetchCourses() {
+      return this._fetchCollection('courses', d => ({ id: d.id, firestoreId: d.id, ...d.data() }));
     },
     async saveCourse(course) {
       try {
@@ -170,21 +177,15 @@ if (typeof firebase !== 'undefined') {
       }
     },
     async fetchQuizzes() {
-      try {
-        const snap = await db.collection("quizzes").get();
-        if (snap.empty) return null;
-        const res = { 1: [], 2: [] };
-        snap.docs.forEach(d => {
-          const q = d.data();
-          const y = Number(q.year) || 1;
-          if (!res[y]) res[y] = [];
-          res[y].push({ id: d.id, firestoreId: d.id, ...q });
-        });
-        return res;
-      } catch (e) {
-        console.warn("Firestore fetchQuizzes:", e.message);
-        return null;
-      }
+      const docs = await this._fetchCollection('quizzes', d => ({ id: d.id, firestoreId: d.id, ...d.data() }));
+      if (docs === null) return null;
+      const res = { 1: [], 2: [] };
+      docs.forEach(q => {
+        const y = Number(q.year) || 1;
+        if (!res[y]) res[y] = [];
+        res[y].push(q);
+      });
+      return res;
     },
     async saveQuizQuestion(question) {
       try {
@@ -213,14 +214,7 @@ if (typeof firebase !== 'undefined') {
       }
     },
     async fetchUsers() {
-      try {
-        const snap = await db.collection("users").get();
-        if (snap.empty) return null;
-        return snap.docs.map(d => ({ id: d.id, firestoreId: d.id, ...d.data() }));
-      } catch (e) {
-        console.warn("Firestore fetchUsers:", e.message);
-        return null;
-      }
+      return this._fetchCollection('users', d => ({ id: d.id, firestoreId: d.id, ...d.data() }));
     },
     async saveUser(user) {
       try {
@@ -256,9 +250,41 @@ if (typeof firebase !== 'undefined') {
     }
   };
 
+  function startRealtimeSync() {
+    if (!window.Store || window.__cspRealtimeStarted) return;
+    window.__cspRealtimeStarted = true;
+
+    db.collection('courses').onSnapshot((snap) => {
+      const courses = snap.docs.map(d => ({ id: d.id, firestoreId: d.id, ...d.data() }));
+      if (typeof Store.applyCloudCourses === 'function') {
+        Store.applyCloudCourses(courses);
+      }
+    }, (err) => console.warn('courses live sync:', err.message));
+
+    db.collection('quizzes').onSnapshot((snap) => {
+      const res = { 1: [], 2: [] };
+      snap.docs.forEach(d => {
+        const q = { id: d.id, firestoreId: d.id, ...d.data() };
+        const y = Number(q.year) || 1;
+        if (!res[y]) res[y] = [];
+        res[y].push(q);
+      });
+      if (typeof Store.applyCloudQuizzes === 'function') {
+        Store.applyCloudQuizzes(res);
+      }
+    }, (err) => console.warn('quizzes live sync:', err.message));
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      window.refreshCloudSync();
+    }
+  });
+
   window.cloudSyncReady = new Promise((resolve) => {
     async function runSync() {
       await window.refreshCloudSync();
+      startRealtimeSync();
       resolve();
     }
     if (document.readyState === 'loading') {
