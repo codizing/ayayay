@@ -270,9 +270,27 @@ if (typeof firebase !== 'undefined') {
   // normal one-time requests still work. This background poll makes sure
   // courses/quiz changes still show up on their own within ~10s even then,
   // without anyone needing to open DevTools and clear localStorage.
+  function showDebugBadge(text) {
+    let badge = document.getElementById('csp-sync-debug-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'csp-sync-debug-badge';
+      badge.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;background:#000;color:#0f0;font:11px monospace;padding:4px 8px;border-radius:4px;opacity:0.85;pointer-events:none;';
+      document.body.appendChild(badge);
+    }
+    badge.textContent = text;
+  }
+
+  let pollTickCount = 0;
   setInterval(() => {
+    pollTickCount++;
+    showDebugBadge('poll #' + pollTickCount + ' @ ' + new Date().toLocaleTimeString());
     if (document.visibilityState === 'visible') {
-      window.refreshCloudSync();
+      window.refreshCloudSync().then(() => {
+        showDebugBadge('poll #' + pollTickCount + ' done @ ' + new Date().toLocaleTimeString() + ' — ' + (Store.getAllCourses().length) + ' courses');
+      });
+    } else {
+      showDebugBadge('poll #' + pollTickCount + ' skipped (tab hidden)');
     }
   }, 10000);
 
