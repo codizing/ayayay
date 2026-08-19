@@ -1,3 +1,5 @@
+alert('QUIZ.JS VERSION 2.7 IS RUNNING — if you see this, the file deployed correctly');
+
 let quizState = { year:1, questions:[], index:0, score:0, started:false, answered:false };
 
 function getYearParam(){
