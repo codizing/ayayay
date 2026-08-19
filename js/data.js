@@ -101,6 +101,21 @@ function notifyStoreUpdated() {
   }
 }
 
+// Shared write lock. ANY code path that does loadDB() -> mutate -> saveDB()
+// must go through this — the 10s poller, the realtime onSnapshot listener,
+// and direct applyCloudCourses/applyCloudQuizzes calls all write independently.
+// Without a shared lock, two of them can overlap: one reads an old snapshot,
+// a second one finishes and saves fresh data, then the first one (still
+// working off its older snapshot) saves last and silently wipes out the
+// fresh data. This forces every writer to load fresh, mutate, and save as
+// one atomic step, always in true call order, no matter which path triggered it.
+let _dbLock = Promise.resolve();
+function withDbLock(fn) {
+  const run = _dbLock.then(fn, fn);
+  _dbLock = run.then(() => {}, () => {});
+  return run;
+}
+
 const Store = {
   async pushUnsyncedToCloud(db) {
     if (!window.FB_Sync) return false;
@@ -168,54 +183,60 @@ const Store = {
     const attempts = 3;
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        const db = loadDB();
-
         const cloudCourses = await window.FB_Sync.fetchCourses();
         const cloudQuizzes = await window.FB_Sync.fetchQuizzes();
         const cloudUsers = await window.FB_Sync.fetchUsers();
+        const reachedCloud = cloudCourses !== null;
 
-        let updated = false;
+        // loadDB() happens INSIDE the lock, right before saving — never
+        // earlier — so this always writes on top of the latest state,
+        // even if the realtime listener or another poll just saved too.
+        await withDbLock(async () => {
+          const db = loadDB();
+          let updated = false;
 
-        // Firebase is the source of truth when fetch succeeds (even if empty [])
-        if (cloudCourses !== null) {
-          db.courses = normalizeCourses(cloudCourses);
-          updated = true;
-        }
-
-        if (cloudQuizzes !== null) {
-          db.quizzes = {
-            1: cloudQuizzes[1] || [],
-            2: cloudQuizzes[2] || []
-          };
-          updated = true;
-        }
-
-        if (cloudUsers !== null && cloudUsers.length) {
-          db.users = cloudUsers;
-          updated = true;
-        }
-
-        // Offline only: upload items that were never saved to Firebase
-        if (cloudCourses === null) {
-          const hasUnsynced = db.courses.some(c => !c.firestoreId)
-            || [1, 2].some(y => (db.quizzes[y] || []).some(q => !q.firestoreId));
-          if (hasUnsynced) {
-            const pushed = await this.pushUnsyncedToCloud(db);
-            if (pushed) updated = true;
+          // Firebase is the source of truth when fetch succeeds (even if empty [])
+          if (cloudCourses !== null) {
+            db.courses = normalizeCourses(cloudCourses);
+            updated = true;
           }
-        } else if (cloudCourses.length === 0) {
-          const hasUnsynced = db.courses.some(c => !c.firestoreId);
-          if (hasUnsynced) {
-            const pushed = await this.pushUnsyncedToCloud(db);
-            if (pushed) updated = true;
-          }
-        }
 
-        if (updated) saveDB(db);
+          if (cloudQuizzes !== null) {
+            db.quizzes = {
+              1: cloudQuizzes[1] || [],
+              2: cloudQuizzes[2] || []
+            };
+            updated = true;
+          }
+
+          if (cloudUsers !== null && cloudUsers.length) {
+            db.users = cloudUsers;
+            updated = true;
+          }
+
+          // Offline only: upload items that were never saved to Firebase
+          if (cloudCourses === null) {
+            const hasUnsynced = db.courses.some(c => !c.firestoreId)
+              || [1, 2].some(y => (db.quizzes[y] || []).some(q => !q.firestoreId));
+            if (hasUnsynced) {
+              const pushed = await this.pushUnsyncedToCloud(db);
+              if (pushed) updated = true;
+            }
+          } else if (cloudCourses.length === 0) {
+            const hasUnsynced = db.courses.some(c => !c.firestoreId);
+            if (hasUnsynced) {
+              const pushed = await this.pushUnsyncedToCloud(db);
+              if (pushed) updated = true;
+            }
+          }
+
+          if (updated) saveDB(db);
+        });
+
         notifyStoreUpdated();
         // cloudCourses === null means every attempt to actually reach
         // Firestore failed and we're just showing whatever was cached.
-        return cloudCourses !== null;
+        return reachedCloud;
       } catch (e) {
         console.warn("syncWithFirebase error:", e);
       }
@@ -224,19 +245,21 @@ const Store = {
     return false;
   },
   applyCloudCourses(courses) {
-    const db = loadDB();
-    db.courses = normalizeCourses(courses);
-    saveDB(db);
-    notifyStoreUpdated();
+    withDbLock(() => {
+      const db = loadDB();
+      db.courses = normalizeCourses(courses);
+      saveDB(db);
+    }).then(() => notifyStoreUpdated());
   },
   applyCloudQuizzes(quizzes) {
-    const db = loadDB();
-    db.quizzes = {
-      1: quizzes[1] || [],
-      2: quizzes[2] || []
-    };
-    saveDB(db);
-    notifyStoreUpdated();
+    withDbLock(() => {
+      const db = loadDB();
+      db.quizzes = {
+        1: quizzes[1] || [],
+        2: quizzes[2] || []
+      };
+      saveDB(db);
+    }).then(() => notifyStoreUpdated());
   },
   async fetchCoursesFromCloud() {
     if (!window.FB_Sync) return [];
