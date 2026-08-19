@@ -168,7 +168,7 @@ function renderQuiz(){
   });
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', async ()=>{
   // Instant Year Switcher click listener in quiz
   document.querySelectorAll('#year-switcher a').forEach(a=>{
     a.addEventListener('click', (e)=>{
@@ -179,6 +179,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
       initQuiz();
     });
   });
+
+  // Show something immediately (loading state), then wait for the real
+  // cloud sync to finish before rendering with actual data — mirrors
+  // courses.js's loadCoursesFromCloud(), which had the same fix already.
+  // Without this, the page rendered instantly with whatever was locally
+  // cached (often nothing) and only updated later IF a 'dbupdated' event
+  // happened to fire — which made quiz questions seem to vanish/never load.
+  const area = document.getElementById('quiz-area');
+  if (area) area.innerHTML = `<div class="empty-state">${(typeof t === 'function' ? t('loading') : null) || 'Loading…'}</div>`;
+
+  if (window.refreshCloudSync) {
+    try { await window.refreshCloudSync(); } catch (e) { /* logged in firebase.js */ }
+  } else if (window.cloudSyncReady) {
+    try { await window.cloudSyncReady; } catch (e) { /* logged in firebase.js */ }
+  }
 
   initQuiz();
   document.addEventListener('langchange', renderQuiz);
