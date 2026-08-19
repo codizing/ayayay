@@ -302,16 +302,16 @@ const Store = {
     if (!course.type) course.type = 'course';
     if (!course.pdfUrl_en) course.pdfUrl_en = course.pdfUrl || '';
     if (!course.pdfUrl_fr) course.pdfUrl_fr = course.pdfUrl || '';
-    withDbLock(() => {
+    return withDbLock(() => {
       const db = loadDB();
       db.courses.push(course);
       saveDB(db);
-    }).then(() => {
+    }).then(async () => {
       notifyStoreUpdated();
       if (window.FB_Sync) {
-        window.FB_Sync.saveCourse(course).then(id => {
-          if (!id) return;
-          withDbLock(() => {
+        const id = await window.FB_Sync.saveCourse(course);
+        if (id) {
+          await withDbLock(() => {
             const db = loadDB();
             const saved = db.courses.find(c => c.id === course.id);
             if (saved) {
@@ -319,10 +319,10 @@ const Store = {
               saveDB(db);
             }
           });
-        });
+        }
       }
+      return course;
     });
-    return course;
   },
   updateCourse(id, patch) {
     withDbLock(() => {
@@ -368,12 +368,12 @@ const Store = {
       question.year = Number(year);
       db.quizzes[year].push(question);
       saveDB(db);
-    }).then(() => {
+    }).then(async () => {
       notifyStoreUpdated();
       if (window.FB_Sync) {
-        window.FB_Sync.saveQuizQuestion(question).then(id => {
-          if (!id) return;
-          withDbLock(() => {
+        const id = await window.FB_Sync.saveQuizQuestion(question);
+        if (id) {
+          await withDbLock(() => {
             const db = loadDB();
             const saved = (db.quizzes[year] || []).find(q => q.id === question.id);
             if (saved) {
@@ -381,8 +381,9 @@ const Store = {
               saveDB(db);
             }
           });
-        });
+        }
       }
+      return question;
     });
   },
   deleteQuestion(year, questionId) {
