@@ -298,85 +298,107 @@ const Store = {
     return db.courses || [];
   },
   addCourse(course) {
-    const db = loadDB();
     course.id = (course.type || 'c') + Date.now();
     if (!course.type) course.type = 'course';
     if (!course.pdfUrl_en) course.pdfUrl_en = course.pdfUrl || '';
     if (!course.pdfUrl_fr) course.pdfUrl_fr = course.pdfUrl || '';
-    db.courses.push(course);
-    saveDB(db);
-    document.dispatchEvent(new CustomEvent('dbupdated'));
-
-    if (window.FB_Sync) {
-      window.FB_Sync.saveCourse(course).then(id => {
-        if (id) {
-          course.firestoreId = id;
-          saveDB(db);
-        }
-      });
-    }
+    withDbLock(() => {
+      const db = loadDB();
+      db.courses.push(course);
+      saveDB(db);
+    }).then(() => {
+      notifyStoreUpdated();
+      if (window.FB_Sync) {
+        window.FB_Sync.saveCourse(course).then(id => {
+          if (!id) return;
+          withDbLock(() => {
+            const db = loadDB();
+            const saved = db.courses.find(c => c.id === course.id);
+            if (saved) {
+              saved.firestoreId = id;
+              saveDB(db);
+            }
+          });
+        });
+      }
+    });
     return course;
   },
   updateCourse(id, patch) {
-    const db = loadDB();
-    const i = db.courses.findIndex(c => c.id === id);
-    if (i > -1) {
-      db.courses[i] = { ...db.courses[i], ...patch };
-      saveDB(db);
-      document.dispatchEvent(new CustomEvent('dbupdated'));
-    }
+    withDbLock(() => {
+      const db = loadDB();
+      const i = db.courses.findIndex(c => c.id === id);
+      if (i > -1) {
+        db.courses[i] = { ...db.courses[i], ...patch };
+        saveDB(db);
+      }
+    }).then(() => notifyStoreUpdated());
   },
   deleteCourse(id) {
-    const db = loadDB();
-    const target = db.courses.find(c => c.id === id);
-    db.courses = db.courses.filter(c => c.id !== id);
-    // Also cleanup completed course references in users
-    if (db.users) {
-      db.users.forEach(u => {
-        if (u.completedCourses) {
-          u.completedCourses = u.completedCourses.filter(cid => cid !== id);
-        }
-      });
-    }
-    saveDB(db);
-    notifyStoreUpdated();
-
-    if (window.FB_Sync && target) {
-      const cloudId = target.firestoreId || target.id;
-      window.FB_Sync.deleteCourse(cloudId);
-    }
+    return withDbLock(() => {
+      const db = loadDB();
+      const target = db.courses.find(c => c.id === id);
+      db.courses = db.courses.filter(c => c.id !== id);
+      if (db.users) {
+        db.users.forEach(u => {
+          if (u.completedCourses) {
+            u.completedCourses = u.completedCourses.filter(cid => cid !== id);
+          }
+        });
+      }
+      saveDB(db);
+      return target;
+    }).then(target => {
+      notifyStoreUpdated();
+      if (window.FB_Sync && target) {
+        const cloudId = target.firestoreId || target.id;
+        window.FB_Sync.deleteCourse(cloudId);
+      }
+    });
   },
   getQuiz(year) {
     const db = loadDB();
     return (db.quizzes[year] || []);
   },
   addQuestion(year, question) {
-    const db = loadDB();
-    if (!db.quizzes[year]) db.quizzes[year] = [];
-    question.id = 'q_' + Date.now();
-    question.year = Number(year);
-    db.quizzes[year].push(question);
-    saveDB(db);
-    document.dispatchEvent(new CustomEvent('dbupdated'));
-
-    if (window.FB_Sync) {
-      window.FB_Sync.saveQuizQuestion(question).then(id => {
-        if (id) {
-          question.firestoreId = id;
-          saveDB(db);
-        }
-      });
-    }
+    return withDbLock(() => {
+      const db = loadDB();
+      if (!db.quizzes[year]) db.quizzes[year] = [];
+      question.id = 'q_' + Date.now();
+      question.year = Number(year);
+      db.quizzes[year].push(question);
+      saveDB(db);
+    }).then(() => {
+      notifyStoreUpdated();
+      if (window.FB_Sync) {
+        window.FB_Sync.saveQuizQuestion(question).then(id => {
+          if (!id) return;
+          withDbLock(() => {
+            const db = loadDB();
+            const saved = (db.quizzes[year] || []).find(q => q.id === question.id);
+            if (saved) {
+              saved.firestoreId = id;
+              saveDB(db);
+            }
+          });
+        });
+      }
+    });
   },
-  deleteQuestion(year, index) {
-    const db = loadDB();
-    const removed = db.quizzes[year]?.splice(index, 1);
-    saveDB(db);
-    document.dispatchEvent(new CustomEvent('dbupdated'));
-
-    if (window.FB_Sync && removed && removed[0]) {
-      window.FB_Sync.deleteQuizQuestion(removed[0].firestoreId || removed[0].id);
-    }
+  deleteQuestion(year, questionId) {
+    return withDbLock(() => {
+      const db = loadDB();
+      const list = db.quizzes[year] || [];
+      const i = list.findIndex(q => q.id === questionId);
+      const removed = i > -1 ? list.splice(i, 1) : null;
+      saveDB(db);
+      return removed;
+    }).then(removed => {
+      notifyStoreUpdated();
+      if (window.FB_Sync && removed && removed[0]) {
+        window.FB_Sync.deleteQuizQuestion(removed[0].firestoreId || removed[0].id);
+      }
+    });
   },
   // ----- USERS & PROGRESS METHODS -----
   getUsers() {
