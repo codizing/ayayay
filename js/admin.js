@@ -32,8 +32,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         <td><button class="btn btn-sm btn-danger" data-del="${c.id}">${t('action_delete')}</button></td>
       </tr>`).join('');
     tbody.querySelectorAll('[data-del]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        Store.deleteCourse(btn.dataset.del);
+      btn.addEventListener('click', async ()=>{
+        await Store.deleteCourse(btn.dataset.del);
         renderCourseTable();
         renderUsersTable();
         showToast(t('toast_deleted'));
@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   const courseForm = document.getElementById('course-form');
   if(courseForm){
-    courseForm.addEventListener('submit', (e)=>{
+    courseForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
       const f = new FormData(e.target);
       const title_en = (f.get('title_en') || '').trim();
@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const pdf_en = (f.get('pdfUrl_en') || '').trim();
       const pdf_fr = (f.get('pdfUrl_fr') || '').trim();
 
-      Store.addCourse({
+      await Store.addCourse({
         type: f.get('type') || 'course',
         year: Number(f.get('year')) || 1,
         code: (f.get('code') || 'CS').trim().toUpperCase(),
@@ -97,8 +97,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         <td><button class="btn btn-sm btn-danger" data-del-year="${r.year}" data-del-id="${r.q.id}">${t('action_delete')}</button></td>
       </tr>`).join('');
     tbody.querySelectorAll('[data-del-year]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        Store.deleteQuestion(Number(btn.dataset.delYear), btn.dataset.delId);
+      btn.addEventListener('click', async ()=>{
+        await Store.deleteQuestion(Number(btn.dataset.delYear), btn.dataset.delId);
         renderQuizTable();
         showToast(t('toast_deleted'));
       });
@@ -225,7 +225,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   const questionForm = document.getElementById('question-form');
   if(questionForm){
-    questionForm.addEventListener('submit', (e)=>{
+    questionForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
       const f = new FormData(e.target);
       const year = Number(f.get('year')) || 1;
@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         return;
       }
 
-      Store.addQuestion(year, {
+      await Store.addQuestion(year, {
         q_en: q_en || q_fr,
         q_fr: q_fr || q_en,
         opts_en: opts_en,
