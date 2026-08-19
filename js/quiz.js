@@ -180,22 +180,35 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     });
   });
 
-  // Show something immediately (loading state), then wait for the real
-  // cloud sync to finish before rendering with actual data — mirrors
-  // courses.js's loadCoursesFromCloud(), which had the same fix already.
-  // Without this, the page rendered instantly with whatever was locally
-  // cached (often nothing) and only updated later IF a 'dbupdated' event
-  // happened to fire — which made quiz questions seem to vanish/never load.
   const area = document.getElementById('quiz-area');
   if (area) area.innerHTML = `<div class="empty-state">${(typeof t === 'function' ? t('loading') : null) || 'Loading…'}</div>`;
 
-  if (window.refreshCloudSync) {
-    try { await window.refreshCloudSync(); } catch (e) { /* logged in firebase.js */ }
-  } else if (window.cloudSyncReady) {
-    try { await window.cloudSyncReady; } catch (e) { /* logged in firebase.js */ }
+  // Force the exact same sync call confirmed to work manually in console,
+  // called directly (not through the refreshCloudSync wrapper), and wait
+  // for it to fully finish before ever rendering the quiz.
+  if (window.Store && typeof Store.syncWithFirebase === 'function') {
+    try {
+      await Store.syncWithFirebase();
+    } catch (e) {
+      console.warn('quiz.js: syncWithFirebase failed on load', e);
+    }
   }
+
+  // Visible proof this updated code is actually running (not an old cached
+  // version) — shows in the corner for 4 seconds after sync completes.
+  const proof = document.createElement('div');
+  proof.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:99999;background:#000;color:#0f0;font:11px monospace;padding:4px 8px;border-radius:4px;opacity:0.85;';
+  proof.textContent = 'quiz.js v2.5 synced — ' + (window.Store ? Store.getQuiz(currentYearFromUrl()).length : '?') + ' questions loaded';
+  document.body.appendChild(proof);
+  setTimeout(() => proof.remove(), 6000);
 
   initQuiz();
   document.addEventListener('langchange', renderQuiz);
   document.addEventListener('dbupdated', initQuiz);
 });
+
+function currentYearFromUrl(){
+  const p = new URLSearchParams(location.search);
+  const y = Number(p.get('year'));
+  return [1,2].includes(y) ? y : 1;
+}
