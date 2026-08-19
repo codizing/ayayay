@@ -86,19 +86,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!tbody) return;
     const rows = [];
     [1,2].forEach(year=>{
-      Store.getQuiz(year).forEach((q, idx)=>{
-        rows.push({ year, idx, q });
+      Store.getQuiz(year).forEach((q)=>{
+        rows.push({ year, q });
       });
     });
     tbody.innerHTML = rows.map(r=>`
       <tr>
         <td><span class="badge">${r.year}</span></td>
         <td>${r.q.q_en}</td>
-        <td><button class="btn btn-sm btn-danger" data-del-year="${r.year}" data-del-idx="${r.idx}">${t('action_delete')}</button></td>
+        <td><button class="btn btn-sm btn-danger" data-del-year="${r.year}" data-del-id="${r.q.id}">${t('action_delete')}</button></td>
       </tr>`).join('');
     tbody.querySelectorAll('[data-del-year]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        Store.deleteQuestion(Number(btn.dataset.delYear), Number(btn.dataset.delIdx));
+        Store.deleteQuestion(Number(btn.dataset.delYear), btn.dataset.delId);
         renderQuizTable();
         showToast(t('toast_deleted'));
       });
@@ -653,4 +653,3 @@ document.addEventListener('DOMContentLoaded', ()=>{
     renderDynamicOptions();
   });
 });
-
