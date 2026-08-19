@@ -11,6 +11,13 @@
 const DB_KEY = 'csp_db_v4';
 let memoryDB = null;
 
+// Force every page load to start clean and pull fresh from Firestore,
+// instead of ever trusting a previously cached course list. Trade-off:
+// if Firestore truly can't be reached at load time, the page will show
+// 0 courses briefly instead of the last-known list — but it guarantees
+// nobody ever sees stale/deleted courses again.
+try { localStorage.removeItem(DB_KEY); } catch (e) { /* storage unavailable */ }
+
 function normalizeCourse(c) {
   if (!c || typeof c !== 'object') return null;
   return {
