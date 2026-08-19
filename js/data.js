@@ -149,7 +149,22 @@ const Store = {
     return pushed ? db.courses.length : 0;
   },
   async syncWithFirebase() {
-    if (!window.FB_Sync) return;
+    // Multiple triggers (initial load, the 10s poller, tab-focus, etc.) can
+    // all fire close together. Without this guard, each one independently
+    // reads localStorage, fetches from Firestore, then writes back — and a
+    // slower call that started with an older snapshot can finish LAST and
+    // silently overwrite a correct, more recent save with stale data.
+    // This makes every concurrent caller share the same single sync instead.
+    if (this._syncInFlight) return this._syncInFlight;
+    this._syncInFlight = this._doSyncWithFirebase();
+    try {
+      return await this._syncInFlight;
+    } finally {
+      this._syncInFlight = null;
+    }
+  },
+  async _doSyncWithFirebase() {
+    if (!window.FB_Sync) return false;
     const attempts = 3;
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
